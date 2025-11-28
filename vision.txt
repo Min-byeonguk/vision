@@ -1,0 +1,2453 @@
+using ASE_WAFER_VISIONINSPECTION.Global;
+using System;
+using System.Collections.Generic;
+using System.ComponentModel;
+using System.Data;
+using System.Drawing;
+using System.Linq;
+using System.Text;
+using System.Threading.Tasks;
+using System.Windows.Forms;
+
+namespace ASE_WAFER_VISIONINSPECTION
+{
+    public partial class Login : Form
+    {
+        public bool LOGIN_STATE = false;
+        public Login()
+        {
+            InitializeComponent();
+        }
+
+        private void btnOK_Click_1(object sender, EventArgs e)
+        {
+            if (txtPass.Text == Constants.PassWord)
+            {
+                LOGIN_STATE = true;
+                Close();
+
+            }
+            else
+            {
+                MessageBox.Show("PassWord Fail!");
+                LOGIN_STATE = false;
+            }
+        }
+
+        private void btnModify_Click_1(object sender, EventArgs e)
+        {
+            using (Login_Modify lmf = new Login_Modify())
+            {
+                lmf.ShowDialog();
+            }
+        }
+
+        private void btnExit_Click_1(object sender, EventArgs e)
+        {
+            Close();
+        }
+    }
+}
+
+using System;
+using System.Collections.Generic;
+using System.ComponentModel;
+using System.Data;
+using System.Drawing;
+using System.Linq;
+using System.Text;
+using System.Threading.Tasks;
+using System.Windows.Forms;
+
+using Cognex.InSight;
+using Cognex.InSight.Cell;
+using Cognex.InSight.Controls.Display;
+
+using ASE_WAFER_VISIONINSPECTION.Camera;
+using ASE_WAFER_VISIONINSPECTION.Files;
+using ASE_WAFER_VISIONINSPECTION.Global;
+using ASE_WAFER_VISIONINSPECTION.Communication;
+using ASE_WAFER_VISIONINSPECTION.Controls;
+using System.IO;
+
+namespace ASE_WAFER_VISIONINSPECTION
+{
+    public partial class Main_Form : Form
+    {
+        #region Camera
+        private insight_Class insight;
+        #endregion
+
+        #region Robot
+        private IS_ThreadClass is_thread;
+       
+        #endregion
+
+        #region Display
+        private IS_UC is_display;
+        private Tool_Form tool;
+        private ETC_Form etc_form;
+        #endregion
+
+        #region Files
+        private File_Class delete_files;
+        private string[] date_buf;
+        private string imgsave_path;
+        #endregion
+
+        #region Delegate
+        delegate void LogChange(string data);
+        delegate void UIUPDATE(object sender, EventArgs e);
+        delegate void MITSHOT(object sender, EventArgs e);
+        delegate void MITSAVE(object sender, EventArgs e);
+        delegate void MITHBUPDATE(object sender, EventArgs e);
+        delegate void MITLOGEvent(object sender, EventArgs e);
+        delegate void MITDISCONNECTEvent(object sender, EventArgs e);
+        #endregion
+
+        public Main_Form()
+        {
+            InitializeComponent();
+        }
+
+        private void Main_Form_Load(object sender, EventArgs e)
+        {
+            try
+            {
+                Camera_Load();
+                PLC_Load();
+                File_INI();
+
+                string ini_path = Path.Combine(Constants.PATH_SETUP, "Password.ini");
+                Constants.PassWord = ini.ReadIni("password", "pass", ini_path);
+                #region Size Down
+                Properties.Settings.Default.Camera_Setting = true;
+                tool = new Tool_Form();
+                tool.INSIGHT = insight;
+                tool.Show();
+                tool.Close();
+
+                tool.Dispose();
+                tool = null;
+                Properties.Settings.Default.Camera_Setting = false;
+                #endregion
+                insight.SET_ONLINE();
+                this.WindowState = FormWindowState.Maximized;
+                this.Update();
+            }
+            catch
+            {
+
+            }
+        }
+        private void Main_Form_FormClosing(object sender, FormClosingEventArgs e)
+        {
+            try
+            {
+                is_thread.ThreadStop();
+                delete_files.Delete_Dispose();
+                insight.Disconnect();
+                insight.Light_Disconnect();
+                
+                is_thread.CommMITLogWrite -= new EventHandler(CommLogUpdate);
+                is_thread.MIT_SHOT -= new EventHandler(mit_shot);
+                is_thread.MIT_UIChange -= new EventHandler(UI_Update);
+                is_thread.MIT_SAVEIMG -= new EventHandler(mit_save);
+                is_thread.Connect_Lost -= new EventHandler(MITDisconnect_Event);
+                is_thread.MIT_HB -= new EventHandler(MITHB);
+                is_thread.Disconnect();
+
+
+                //is_hb.ThreadStop();
+                //is_hb.MIT_HB -= new EventHandler(MITHB);
+                //is_hb.Disconnect();
+            }
+            catch
+            {
+
+            }
+        }
+
+        private void Start_panel_Click(object sender, EventArgs e)
+        {
+            try
+            {
+                Properties.Settings.Default.Camera_Setting = false;
+
+                is_thread.ThreadIni_Start();
+            }
+            catch
+            {
+
+            }
+        }
+        private void Stop_panel_Click(object sender, EventArgs e)
+        {
+            try
+            {
+                Properties.Settings.Default.Camera_Setting = true;
+
+                is_thread.ThreadStop();
+            }
+            catch
+            {
+
+            }
+        }
+        private void Camera_panel_Click(object sender, EventArgs e)
+        {
+            try
+            {
+                Login login = new Login();
+
+                login.ShowDialog();
+
+
+                if (login.LOGIN_STATE)
+                {
+
+                    Properties.Settings.Default.Camera_Setting = true;
+                    tool = new Tool_Form();
+                    tool.INSIGHT = insight;
+                    tool.ShowDialog();
+
+                    tool.Dispose();
+                    tool = null;
+                    Properties.Settings.Default.Camera_Setting = false;
+
+                    insight.SET_ONLINE();
+                    //insight.Disconnect();
+
+                    //insight.Connect("192.168.1.11", "admin");
+                    GC.Collect();
+                }
+
+            }
+            catch
+            {
+
+            }
+        }
+        private void ETC_panel_Click(object sender, EventArgs e)
+        {
+            try
+            {
+                Login login = new Login();
+
+                login.ShowDialog();
+
+                if (login.LOGIN_STATE)
+                {
+                    etc_form = new ETC_Form();
+                etc_form.CAM_STATE = insight.INSIGHT_STATE();
+                etc_form.ShowDialog();
+
+                etc_form.Dispose();
+                etc_form = null;
+                    GC.Collect();
+                }
+            }
+            catch
+            {
+
+            }
+        }
+
+        private void UI_Update(object sender, EventArgs e)
+        {
+            if (InvokeRequired)
+            {
+                Invoke(new UIUPDATE(UI_Update), sender, e);
+            }
+            else
+            {
+                try
+                {
+                    is_display.Image_Reset();
+                    is_display.Image_Update(insight.Get_Image(), insight.Result(is_thread.MODELNAME), is_thread.MODELNAME);
+
+                    if (insight.Result_state)
+                    {
+                        is_thread.Is_Result = true;
+                        date_buf = insight.result_date.Split('-');
+                        insight.SaveIMG_Path = System.IO.Path.Combine(Constants.PATH_IMG, date_buf[0], date_buf[1], date_buf[2], "OK", is_thread.MODELNAME, insight.result_date + ".jpg");
+
+                        if (!System.IO.Directory.Exists(System.IO.Path.Combine(Constants.PATH_IMG, date_buf[0], date_buf[1], date_buf[2], "OK", is_thread.MODELNAME)))
+                        {
+                            System.IO.Directory.CreateDirectory(System.IO.Path.Combine(Constants.PATH_IMG, date_buf[0], date_buf[1], date_buf[2], "OK", is_thread.MODELNAME));
+                        }
+
+                        date_buf = null;
+                    }
+                    else
+                    {
+                        is_thread.Is_Result = false;
+                        date_buf = insight.result_date.Split('-');
+                        insight.SaveIMG_Path = System.IO.Path.Combine(Constants.PATH_IMG, date_buf[0], date_buf[1], date_buf[2], "NG", is_thread.MODELNAME, insight.result_date + ".jpg");
+
+                        if (!System.IO.Directory.Exists(System.IO.Path.Combine(Constants.PATH_IMG, date_buf[0], date_buf[1], date_buf[2], "NG", is_thread.MODELNAME)))
+                        {
+                            System.IO.Directory.CreateDirectory(System.IO.Path.Combine(Constants.PATH_IMG, date_buf[0], date_buf[1], date_buf[2], "NG", is_thread.MODELNAME));
+                        }
+
+                        date_buf = null;
+                    }
+                }
+                catch
+                {
+
+                }
+            }
+        }
+        private void mit_shot(object sender, EventArgs e)
+        {
+            if (InvokeRequired)
+            {
+                Invoke(new MITSHOT(mit_shot), sender, e);
+            }
+            else
+            {
+                try
+                {
+                    insight.Shot();
+                }
+                catch
+                {
+
+                }
+            }
+        }
+        private void mit_save(object sender, EventArgs e)
+        {
+            if (InvokeRequired)
+            {
+                Invoke(new MITSAVE(mit_save), sender, e);
+            }
+            else
+            {
+                try
+                {
+                    if (Properties.Settings.Default.ImageSave)
+                    {
+                        insight.Save_IMG(insight.SaveIMG_Path);
+                    }
+
+
+                }
+                catch
+                {
+
+                }
+            }
+        }
+        private void MITDisconnect_Event(object sender, EventArgs e)
+        {
+            if (InvokeRequired)
+            {
+                Invoke(new MITDISCONNECTEvent(MITDisconnect_Event), sender, e);
+            }
+            else
+            {
+                try
+                {
+                    DateTime now = DateTime.Now;
+
+                    MIT_CAMEventArgs args = (MIT_CAMEventArgs)e;
+
+                    if (PRGLog_tb.Lines.Length > 5000)
+                    {
+                        PRGLog_tb.Clear();
+                    }
+
+                    if (args.Item == "[Camera]")
+                    {
+                        //Camera_Disconnect();
+                    }
+                    else if (args.Item == "[PLC]")
+                    {
+                        PRGLog_tb.AppendText("[" + now.Hour.ToString("D2") + ":" + now.Minute.ToString("D2") + ":" + now.Second.ToString("D2") + "] " + args.Item + " : " + args.Item_State + Environment.NewLine);
+                        MIT_Disconnect();
+                    }
+
+                    args = null;
+                }
+                catch
+                {
+                    Console.WriteLine("CommLogError");
+                }
+            }
+        }
+        private void CommLogUpdate(object sender, EventArgs e)
+        {
+            if (InvokeRequired)
+            {
+                Invoke(new MITLOGEvent(CommLogUpdate), sender, e);
+            }
+            else
+            {
+                try
+                {
+                    DateTime now = DateTime.Now;
+                    MITPLC_EventArgs args = (MITPLC_EventArgs)e;
+                    if (PLCLog_tb.Lines.Length > 5000)
+                    {
+                        PLCLog_tb.Clear();
+                    }
+                    PLCLog_tb.AppendText("[" + now.Hour.ToString("D2") + ":" + now.Minute.ToString("D2") + ":" + now.Second.ToString("D2") + "] " + args.Message + Environment.NewLine);
+                }
+                catch
+                {
+                    Console.WriteLine("CommLogError");
+                }
+            }
+        }
+
+        private void Camera_Load()
+        {
+            try
+            {
+                Cognex.InSight.CvsInSightSoftwareDevelopmentKit.Initialize();
+                Properties.Settings.Default.Camera_Setting = true;
+
+                is_display = new IS_UC();
+                insight = new insight_Class();
+                insight.Connect("192.168.0.20", "admin");
+
+                Main_tableLayoutPanel.Controls.Add(is_display, 0, 1);
+                is_display.Dock = DockStyle.Fill;
+                is_display.Margin = new Padding(1);
+
+                insight.Light_Connect();
+            }
+            catch
+            {
+
+            }
+        }
+        private void PLC_Load()
+        {
+            try
+            {
+                is_thread = new IS_ThreadClass();
+                
+                is_thread.Connect("192.168.0.30", "1500");
+                is_thread.CommMITLogWrite += new EventHandler(CommLogUpdate);
+                is_thread.MIT_SHOT += new EventHandler(mit_shot);
+                is_thread.MIT_UIChange += new EventHandler(UI_Update);
+                is_thread.MIT_SAVEIMG += new EventHandler(mit_save);
+                is_thread.Connect_Lost += new EventHandler(MITDisconnect_Event);
+                is_thread.MIT_HB += new EventHandler(MITHB);
+                is_thread.ThreadIni_Start();
+                //is_hb.ThreadIni_Start();
+                //is_hb.MIT_HB += new EventHandler(MITHB);
+
+            }
+            catch
+            {
+
+            }
+        }
+        private void File_INI()
+        {
+            try
+            {
+                delete_files = new File_Class();
+                delete_files.Delete_Ini();
+            }
+            catch
+            {
+
+            }
+        }
+        private void MIT_Disconnect()
+        {
+            try
+            {
+                is_thread.Disconnect();
+                LogShow("[" + DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss") + "]" + " M : " + "PLC Disconnect!" + Environment.NewLine);
+            }
+            catch
+            {
+
+            }
+        }
+        private void LogShow(string logdata)
+        {
+            if (InvokeRequired)
+            {
+                Invoke(new LogChange(LogShow), logdata);
+            }
+            else
+            {
+                try
+                {
+                    PRGLog_tb.AppendText(logdata);
+                }
+                catch
+                {
+
+                }
+            }
+        }
+
+        private void MITHB(object sender, EventArgs e)
+        {
+            if (InvokeRequired)
+            {
+                Invoke(new MITHBUPDATE(MITHB), sender, e);
+            }
+            else
+            {
+                try
+                {
+                    if (((MIT_HBventArgs)e).ONOFF)
+                    {
+                        HB_panel.BackColor = Color.FromArgb(184, 240, 159);
+                    }
+                    else
+                    {
+                        HB_panel.BackColor = Color.Transparent;
+                    }
+                }
+                catch
+                {
+
+                }
+            }
+        }
+    }
+}
+
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Text;
+using System.Threading.Tasks;
+
+namespace ASE_WAFER_VISIONINSPECTION.Global
+{
+    static public class Constants
+    {
+        #region Setting
+        static public string PATH_SETUP = @"C:\DIC\Setup";
+
+        static public string PATH_IMG = @"D:\IMG";
+
+        static public string PATH_Light_Ini = @"C:\DIC\Setup\Light.ini";
+
+        static public string login_path = @"C:\DIC\Setup\Login.ini";
+
+        static public string PassWord = "";
+        #endregion
+    }
+}
+
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Text;
+using System.Threading.Tasks;
+
+using System.Drawing;
+
+using Cognex.InSight;
+using Cognex.InSight.Cell;
+using Cognex.InSight.Controls.Display;
+
+using ASE_WAFER_VISIONINSPECTION.Global;
+
+namespace ASE_WAFER_VISIONINSPECTION.Camera
+{
+    public class insight_Class
+    {
+        private Light_Class light;
+        private CvsInSight insight;
+        private CvsImage is_img;
+        private Bitmap savebp;
+        private System.IO.DirectoryInfo ftp_dir = new System.IO.DirectoryInfo(@"D:\FTP");
+        private int light_value;
+
+        public string SaveIMG_Path;
+        public bool Result_state;
+        public string result_date;
+        public string result_date_nofff;
+
+        public void Connect(string ip_address, string username)
+        {
+            try
+            {
+                Cognex.InSight.CvsInSightSoftwareDevelopmentKit.Initialize();
+                insight = new CvsInSight();
+                insight.Connect(ip_address, username, "", true, false);               
+                insight.SoftOnline = true;                
+            }
+            catch
+            {
+
+            }
+        }
+        public void Disconnect()
+        {
+            try
+            {
+                insight.Disconnect();
+                insight.Dispose();
+                insight = null;
+            }
+            catch
+            {
+
+            }
+        }
+        public void Light_Connect()
+        {
+            try
+            {
+                light = new Light_Class("COM1");
+                light.Port_Open();
+                load_light();
+            }
+            catch
+            {
+
+            }
+        }
+        public void Light_Disconnect()
+        {
+            try
+            {
+                light.Port_Close();
+                light.Light_Value_INI();
+                light.Light_ON_OFF(false);
+                light = null;
+                light_value = 0;
+            }
+            catch
+            {
+
+            }
+        }
+        public void Shot()
+        {
+            try
+            {
+                Result_state = false;
+                System.Diagnostics.Stopwatch sw = new System.Diagnostics.Stopwatch();
+                sw.Start();
+                light.Lighe_Value_All(light_value);
+                System.Threading.Thread.Sleep(50);
+                light.Light_ON_OFF(true);
+                System.Threading.Thread.Sleep(10);
+                insight.ManualAcquire();
+                light.Light_ON_OFF(false);
+                is_img = insight.Results.GetImage(0);
+                savebp = is_img.ToBitmap();
+                sw.Stop();
+                Console.WriteLine(sw.ElapsedMilliseconds.ToString());
+                result_date = DateTime.Now.ToString("yyyy-MM-dd-HH-mm-ss.fff");
+                result_date_nofff = result_date.Split('-')[0] + "-" + result_date.Split('-')[1] + "-" + result_date.Split('-')[2];
+            }
+            catch
+            {
+                result_date = DateTime.Now.ToString("yyyy-MM-dd-HH-mm-ss.fff");
+                result_date_nofff = result_date.Split('-')[0] + "-" + result_date.Split('-')[1] + "-" + result_date.Split('-')[2];
+            }
+        }
+        public bool Result(string ModelName)
+        {
+            try
+            {
+                CvsCellLocation result1 = new CvsCellLocation();
+                result1.Column = 0;
+                result1.Row = 26;
+                string CellResult = insight.Results.Cells[result1].Text;
+
+                if (Properties.Settings.Default.VisionPass)
+                {
+                    Result_state = true;
+                    return true;
+                }
+
+                else
+                {
+                    if (ModelName == CellResult)
+                    {
+                        Result_state = true;
+                        return true;
+                    }
+                    else
+                    {
+                        Result_state = false;
+                        return false;
+                    }
+                }
+            }
+            catch
+            {
+                Result_state = false;
+                return false;
+            }
+        }
+        public CvsInSight Get_INSIGHT()
+        {
+            return insight;
+        }
+        public Bitmap Get_Image()
+        {
+            return savebp;
+        }
+        public void Save_IMG(string Path)
+        {
+            try
+            {
+                savebp.Save(Path, System.Drawing.Imaging.ImageFormat.Jpeg);
+            }
+            catch
+            {
+
+            }
+        }
+        private void load_light()
+        {
+            try
+            {
+                
+
+                int i = 0;
+               
+                    light_value = int.Parse(ini.ReadIni("INSIGHT", "CH" + (i + 1).ToString(), Constants.PATH_Light_Ini));
+                
+            }
+            catch
+            {
+
+            }
+        }
+        public void Light_ON()
+        {
+            try
+            {
+                light.Lighe_Value_All(light_value);
+                System.Threading.Thread.Sleep(100);
+                light.Light_ON_OFF(true);
+            }
+            catch
+            {
+
+            }
+        }
+        public void Light_OFF()
+        {
+            try
+            {
+                light.Light_ON_OFF(false);
+            }
+            catch
+            {
+
+            }
+        }
+        public void Light_Value_Update()
+        {
+            try
+            {
+                int i = 0;
+
+
+                    light_value = int.Parse(ini.ReadIni("INSIGHT", "CH" + (i + 1).ToString(), Constants.PATH_Light_Ini));
+                
+            }
+            catch
+            {
+
+            }
+        }
+        public bool INSIGHT_STATE()
+        {
+            try
+            {
+                if(insight.State == CvsInSightState.NotConnected)
+                {
+                    return false;
+                }
+                else
+                {
+                    return true;
+                }
+            }
+            catch
+            {
+                return false;
+            }
+        }
+        public void SET_ONLINE()
+        {
+            try
+            {
+                insight.SoftOnline = true;
+            }
+            catch
+            {
+
+            }
+        }
+    }
+}
+
+ using ASE_WAFER_VISIONINSPECTION.Global;
+using System;
+using System.Collections.Generic;
+using System.ComponentModel;
+using System.Data;
+using System.Drawing;
+using System.IO;
+using System.Linq;
+using System.Text;
+using System.Threading.Tasks;
+using System.Windows.Forms;
+
+namespace ASE_WAFER_VISIONINSPECTION
+{
+    public partial class Login_Modify : Form
+    {
+        public Login_Modify()
+        {
+            InitializeComponent();
+        }
+
+        private void btnOK_Click(object sender, EventArgs e)
+        {
+            if (txtCurrentPass.Text == Constants.PassWord)
+            {
+                if (txtPassToModify.Text == txtVerifyPass.Text)
+                {
+                    Constants.PassWord = txtPassToModify.Text;
+
+                    string ini_path = Path.Combine(Constants.PATH_SETUP, "Password.ini");
+                    ini.WriteIni("password", "pass", Constants.PassWord, ini_path);
+                    MessageBox.Show("PassWord 변경 완료!");
+                    Close();
+
+                }
+            }
+        }
+
+        private void btnExit_Click(object sender, EventArgs e)
+        {
+            Close();
+        }
+    }
+}
+
+using System;
+using System.Text;
+using System.Net.Sockets;
+
+namespace ASE_WAFER_VISIONINSPECTION.Communication
+{
+    public class StateObject
+    {
+        public Socket workSocket = null;
+        public const int BufferSize = 100;
+        public byte[] buffer = new byte[BufferSize];
+        public StringBuilder sb = new StringBuilder();
+    }
+}
+
+using System;
+using System.Threading;
+
+using ASE_WAFER_VISIONINSPECTION.Global;
+
+namespace ASE_WAFER_VISIONINSPECTION.Communication
+{
+    public class IS_ThreadClass
+    {
+        ////////////////////////////////////////////////////////////사용 이벤트 변수//////////////////////////////////////////////////////////////////////////////
+        public event EventHandler CommMITLogWrite;
+        public event EventHandler Connect_Lost;
+        public event EventHandler MIT_SHOT;
+        public event EventHandler MIT_UIChange;
+        public event EventHandler MIT_SAVEIMG;
+        public event EventHandler MIT_HB;
+        
+
+        ////////////////////////////////////////////////////////////사용 변수////////////////////////////////////////////////////////////////////////////////////
+        private System.Diagnostics.Stopwatch HB_Check;
+        private System.Diagnostics.Stopwatch TACK_Check;
+        public TCP_Class Client;
+        public Thread MThread;
+        public bool TH1ST = false;
+        public bool Is_Result = false;
+        public string MODEL = "";
+        public string MODELNAME = "";
+        private bool connect_state = false;
+        private int Step = 0;
+        private string trgread = "";
+        bool read_state;
+
+        public void Connect(string ip_address, string port)
+        {
+            try
+            {
+                Client = new TCP_Class();
+                Client.IpAdress = ip_address;
+                Client.Port = port;
+                Client.Connect();
+                HB_Check = new System.Diagnostics.Stopwatch();
+            }
+            catch
+            {
+
+            }
+        }
+        public void Disconnect()
+        {
+            try
+            {
+                Client.Disconnect();
+            }
+            catch
+            {
+
+            }
+        }
+        public void ThreadIni_Start()
+        {
+            if (connect_state != true)
+            {
+                MThread = new Thread(new ThreadStart(thread_work));
+                TH1ST = true;
+                MThread.Start();
+                connect_state = true;
+            }
+            else
+            {
+                MThread.Abort();
+
+                if (!Client.Disconnect_Check())
+                {
+                    Client.Connect();
+                }
+
+                MThread = new Thread(new ThreadStart(thread_work));
+                TH1ST = true;
+                MThread.Start();
+            }
+        }
+        public void ThreadStop()
+        {
+            MThread.Abort();
+            TH1ST = false;
+        }
+
+        private void thread_work()
+        {
+            //while (true)
+            //{
+            //    System.Threading.Thread.Sleep(5);
+            //    if (!Client.ReadFlag)
+            //    {
+            //        read_state = false;
+            //        break;
+            //    }
+            //}
+
+            TACK_Check = new System.Diagnostics.Stopwatch();
+
+            while (TH1ST)
+            {
+         
+
+                try
+                {
+                    #region 통신 HB (D90222.0)
+                    try
+                    {
+                        if (!read_state)
+                        {
+                            Client.Read_Data(500, 1);
+                            Thread.Sleep(10);
+
+                            while (true)
+                            {
+                                System.Threading.Thread.Sleep(5);
+                                if (!Client.ReadFlag)
+                                {
+                                    if (Client.Bit_Check(Client.Data_Read())[0] == 0)
+                                    {
+                                        MIT_HB(this, new MIT_HBventArgs(false));
+
+                                        if (!HB_Check.IsRunning)
+                                        {
+                                            HB_Check.Start();
+                                        }
+                                        else if (HB_Check.IsRunning && HB_Check.ElapsedMilliseconds > 10)
+                                        {
+                                            HB_Check.Stop();
+                                            HB_Check.Reset();
+                                            Client.ReadFlag = true;
+                                            Client.Send_Data(500, "1");
+                                            //Thread.Sleep(50);
+                                            if (TH1ST)
+                                            {
+                                                CommMITLogWrite(this, new MITPLC_EventArgs("[CAM1]", "HB ON!"));
+                                                MIT_HB(this, new MIT_HBventArgs(true));
+                                            }
+                                            while (true)
+                                            {
+                                                Thread.Sleep(10);
+                                                if (!Client.ReadFlag)
+                                                {
+                                                    System.Threading.Thread.Sleep(5);
+                                                    if (!Client.ReadFlag)
+                                                    {
+                                                        if (TH1ST)
+                                                        {
+                                                            CommMITLogWrite(this, new MITPLC_EventArgs("[CAM1]", "HB Write Wait!"));
+                                                        }
+
+                                                        break;
+                                                    }
+                                                }
+                                            }
+                                        }
+                                        break;
+                                    }
+                                    else if (Client.Bit_Check(Client.Data_Read())[0] == 1)
+                                    {
+                                        MIT_HB(this, new MIT_HBventArgs(true));
+
+                                        if (!HB_Check.IsRunning)
+                                        {
+                                            HB_Check.Start();
+                                        }
+                                        else if (HB_Check.IsRunning && HB_Check.ElapsedMilliseconds > 10)
+                                        {
+                                            HB_Check.Stop();
+                                            HB_Check.Reset();
+                                            Client.ReadFlag = true;
+                                            Client.Send_Data(500, "0");
+                                            // Thread.Sleep(50);
+                                            if (TH1ST)
+                                            {
+                                                CommMITLogWrite(this, new MITPLC_EventArgs("[CAM1]", "HB OFF!"));
+                                                MIT_HB(this, new MIT_HBventArgs(true));
+                                            }
+                                            while (true)
+                                            {
+                                                //Thread.Sleep(10);
+                                                if (!Client.ReadFlag)
+                                                {
+                                                    //   System.Threading.Thread.Sleep(5);
+                                                    if (!Client.ReadFlag)
+                                                    {
+                                                        if (TH1ST)
+                                                        {
+                                                            CommMITLogWrite(this, new MITPLC_EventArgs("[CAM1]", "HB Write Wait!"));
+                                                        }
+                                                        Client.ReadFlag = false;
+                                                        break;
+                                                    }
+                                                }
+                                            }
+                                        }
+                                        Client.ReadFlag = false;
+                                        break;
+                                    }
+                                }
+
+                            }
+                        }
+                    }
+                    catch
+                    {
+
+                    }
+                    #endregion
+
+
+
+
+
+
+
+                    try
+                    {
+                        #region Connect_Check
+                        if (Client.Disconnect_Check() != true)
+                        {
+                            TH1ST = false;
+                            Connect_Lost(this, new MIT_CAMEventArgs("[PLC]", "Disconnect"));
+                            Step = (int)TCP_Step.Trigger;
+                        }
+                        #endregion
+
+                        System.Threading.Thread.Sleep(10);
+                        
+                        switch (Step)
+                        {
+                            //트리거 신호 대기 ( Receive => "1" )
+                            case 0:
+                                if (!read_state)
+                                {
+                                    Client.Read_Data(501, 1);
+                                    Thread.Sleep(30);
+                                    read_state = true;
+                                }
+                                else
+                                {
+                                    if (!Client.ReadFlag)
+                                    {
+                                        
+
+                                        trgread = Client.Data_Read();
+
+                                        if (trgread == "2")
+                                        {
+
+                                            TACK_Check.Reset();
+                                            TACK_Check.Start();
+
+                                            Client.Read_Data(502, 1);
+                                            MODEL = Client.Data_Read();
+                                            if (MODEL == "1")
+                                            {
+                                                MODELNAME = "A";
+                                            }
+                                            else if(MODEL == "2")
+                                            {
+                                                MODELNAME = "B";
+                                            }
+                                            else if (MODEL == "3")
+                                            {
+                                                MODELNAME = "C";
+                                            }
+                                            else if (MODEL == "4")
+                                            {
+                                                MODELNAME = "D";
+                                            }
+
+
+
+
+                                            CommMITLogWrite(this, new MITPLC_EventArgs("[Vision]", "MODEL : " + MODEL));
+                                            if (TH1ST)
+                                            {
+                                                CommMITLogWrite(this, new MITPLC_EventArgs("[Vision]", "TRG ON!"));
+                                            }
+                                            MIT_SHOT(this, EventArgs.Empty);
+                                            Step = (int)TCP_Step.IMG_Update;
+                                        }
+                                        else
+                                        {
+                                            if (TH1ST)
+                                            {
+                                                CommMITLogWrite(this, new MITPLC_EventArgs("[Vision]", "TRG Wait!"));
+                                                Client.ReadFlag = false;
+                                                read_state = false;
+                                                trgread = "";
+                                            }
+                                        }
+
+
+                                    }
+                                    else
+                                    {
+                                        if (TH1ST)
+                                        {
+                                            CommMITLogWrite(this, new MITPLC_EventArgs("[Vision]", "TRG Wait!"));
+                                        }
+                                    }
+                                }
+                                break;
+
+                            //이미지 업데이트
+                            case 1:
+                                try
+                                {
+                                    MIT_UIChange(this, EventArgs.Empty);
+
+                                    if (TH1ST)
+                                    {
+                                        CommMITLogWrite(this, new MITPLC_EventArgs("[Vision]", "Image Update!"));
+                                    }
+
+                                    Step = (int)TCP_Step.Send_Result;
+                                }
+                                catch
+                                {
+                                    if (TH1ST)
+                                    {
+                                        CommMITLogWrite(this, new MITPLC_EventArgs("[Vision]", "Image Update Error!"));
+                                    }
+                                }
+                               
+                                break;
+
+                            // 결과 전송
+                            case 2:
+                                
+                                if (Is_Result)
+                                {
+                                    Client.Send_Data(510, "1");
+                                }
+                                else
+                                {
+                                    Client.Send_Data(510, "2");
+                                }
+
+                                Step = (int)TCP_Step.Saveing_Wait;
+                                
+                                break;
+
+                            //이미지 저장 대기
+                            case 3:
+                                MIT_SAVEIMG(this, EventArgs.Empty);
+
+                                if (TH1ST)
+                                {
+                                    CommMITLogWrite(this, new MITPLC_EventArgs("[Vision]", "Image Save!"));
+                                }
+
+                                Step = (int)TCP_Step.Result_Ack;
+
+                                break;
+
+                           
+                            case 4:
+                                while(true)
+                                {
+                                    Client.Read_Data(510, 1);
+                                    string ack = Client.Data_Read();
+                                    if  (ack == "9" || ack ==  "10")
+                                    {
+                                        Client.Send_Data(510, "0");
+                                        double ss3 = (TACK_Check.ElapsedMilliseconds / 1000.0);
+                                        break;
+                                       
+                                    }
+                                }
+                                if (TH1ST)
+                                {
+                                    CommMITLogWrite(this, new MITPLC_EventArgs("[Vision]", "Reult complete"));
+                                }
+                                Step = (int)TCP_Step.Trigger;
+
+                                break;
+
+
+                        }
+                    }
+                    catch
+                    {
+
+                    }
+
+                }
+                catch
+                {
+
+                }
+            }
+        }
+    }
+}
+
+using System;
+using System.Threading;
+using System.IO;
+using System.Collections.Generic;
+
+using ASE_WAFER_VISIONINSPECTION.Global;
+
+namespace ASE_WAFER_VISIONINSPECTION.Files
+{
+    public class StringAsNumericComparer : IComparer<string>
+    {
+        public StringAsNumericComparer()
+        { }
+        public int Compare(object x, object y)
+        {
+            if ((x is string) && (y is string))
+            {
+                return StringLogicalComparer.Compare((string)x, (string)y);
+            }
+
+            return -1;
+        }
+        public int Compare(string x, string y)
+        {
+            return StringLogicalComparer.Compare(x, y);
+        }
+        private class StringLogicalComparer
+        {
+            public static int Compare(string s1, string s2)
+            {
+                //get rid of special cases
+                if ((s1 == null) && (s2 == null)) return 0;
+                else if (s1 == null) return -1;
+                else if (s2 == null) return 1;
+
+                if ((s1.Equals(string.Empty) && (s2.Equals(string.Empty)))) return 0;
+                else if (s1.Equals(string.Empty)) return -1;
+                else if (s2.Equals(string.Empty)) return -1;
+
+                //WE style, special case
+                bool sp1 = Char.IsLetterOrDigit(s1, 0);
+                bool sp2 = Char.IsLetterOrDigit(s2, 0);
+                if (sp1 && !sp2) return 1;
+                if (!sp1 && sp2) return -1;
+
+                int i1 = 0, i2 = 0; //current index
+                int r = 0; //temp result
+                while (true)
+                {
+                    bool c1 = Char.IsDigit(s1, i1);
+                    bool c2 = Char.IsDigit(s2, i2);
+                    if (!c1 && !c2)
+                    {
+                        bool letter1 = Char.IsLetter(s1, i1);
+                        bool letter2 = Char.IsLetter(s2, i2);
+                        if ((letter1 && letter2) || (!letter1 && !letter2))
+                        {
+                            if (letter1 && letter2)
+                            {
+                                r = Char.ToLower(s1[i1]).CompareTo(Char.ToLower(s2[i2]));
+                            }
+                            else
+                            {
+                                r = s1[i1].CompareTo(s2[i2]);
+                            }
+                            if (r != 0) return r;
+                        }
+                        else if (!letter1 && letter2) return -1;
+                        else if (letter1 && !letter2) return 1;
+                    }
+                    else if (c1 && c2)
+                    {
+                        r = CompareNum(s1, ref i1, s2, ref i2);
+                        if (r != 0) return r;
+                    }
+                    else if (c1)
+                    {
+                        return -1;
+                    }
+                    else if (c2)
+                    {
+                        return 1;
+                    }
+                    i1++;
+                    i2++;
+                    if ((i1 >= s1.Length) && (i2 >= s2.Length))
+                    {
+                        return 0;
+                    }
+                    else if (i1 >= s1.Length)
+                    {
+                        return -1;
+                    }
+                    else if (i2 >= s2.Length)
+                    {
+                        return -1;
+                    }
+                }
+            }
+            private static int CompareNum(string s1, ref int i1, string s2, ref int i2)
+            {
+                int nzStart1 = i1, nzStart2 = i2; // nz = non zero
+                int end1 = i1, end2 = i2;
+
+                ScanNumEnd(s1, i1, ref end1, ref nzStart1);
+                ScanNumEnd(s2, i2, ref end2, ref nzStart2);
+                int start1 = i1; i1 = end1 - 1;
+                int start2 = i2; i2 = end2 - 1;
+
+                int nzLength1 = end1 - nzStart1;
+                int nzLength2 = end2 - nzStart2;
+
+                if (nzLength1 < nzLength2) return -1;
+                else if (nzLength1 > nzLength2) return 1;
+
+                for (int j1 = nzStart1, j2 = nzStart2; j1 <= i1; j1++, j2++)
+                {
+                    int r = s1[j1].CompareTo(s2[j2]);
+                    if (r != 0) return r;
+                }
+                // the nz parts are equal
+                int length1 = end1 - start1;
+                int length2 = end2 - start2;
+                if (length1 == length2) return 0;
+                if (length1 > length2) return -1;
+                return 1;
+            }
+            private static void ScanNumEnd(string s, int start, ref int end, ref int nzStart)
+            {
+                nzStart = start;
+                end = start;
+                bool countZeros = true;
+                while (Char.IsDigit(s, end))
+                {
+                    if (countZeros && s[end].Equals('0'))
+                    {
+                        nzStart++;
+                    }
+                    else countZeros = false;
+                    end++;
+                    if (end >= s.Length) break;
+                }
+            }
+        }
+    }
+    public class StringAsNumericComparer2 : IComparer<string>
+    {
+        public StringAsNumericComparer2()
+        { }
+        public int Compare(object x, object y)
+        {
+            if ((x is string) && (y is string))
+            {
+                return StringLogicalComparer2.Compare((string)x, (string)y);
+            }
+
+            return -1;
+        }
+        public int Compare(string x, string y)
+        {
+            return StringLogicalComparer2.Compare(x, y);
+        }
+        private class StringLogicalComparer2
+        {
+            public static int Compare(string s1, string s2)
+            {
+                //get rid of special cases
+                if ((s1 == null) && (s2 == null)) return 0;
+                else if (s1 == null) return -1;
+                else if (s2 == null) return 1;
+
+                if ((s1.Equals(string.Empty) && (s2.Equals(string.Empty)))) return 0;
+                else if (s1.Equals(string.Empty)) return -1;
+                else if (s2.Equals(string.Empty)) return -1;
+
+                //WE style, special case
+                bool sp1 = Char.IsLetterOrDigit(s1, 0);
+                bool sp2 = Char.IsLetterOrDigit(s2, 0);
+                if (sp1 && !sp2) return 1;
+                if (!sp1 && sp2) return -1;
+
+                int i1 = 0, i2 = 0; //current index
+                int r = 0; //temp result
+                while (true)
+                {
+                    bool c1 = Char.IsDigit(s1, i1);
+                    bool c2 = Char.IsDigit(s2, i2);
+                    if (!c1 && !c2)
+                    {
+                        bool letter1 = Char.IsLetter(s1, i1);
+                        bool letter2 = Char.IsLetter(s2, i2);
+                        if ((letter1 && letter2) || (!letter1 && !letter2))
+                        {
+                            if (letter1 && letter2)
+                            {
+                                r = Char.ToLower(s1[i1]).CompareTo(Char.ToLower(s2[i2]));
+                            }
+                            else
+                            {
+                                r = s1[i1].CompareTo(s2[i2]);
+                            }
+                            if (r != 0) return r;
+                        }
+                        else if (!letter1 && letter2) return -1;
+                        else if (letter1 && !letter2) return 1;
+                    }
+                    else if (c1 && c2)
+                    {
+                        r = CompareNum(s1, ref i1, s2, ref i2);
+                        if (r != 0) return r;
+                    }
+                    else if (c1)
+                    {
+                        return -1;
+                    }
+                    else if (c2)
+                    {
+                        return 1;
+                    }
+                    i1++;
+                    i2++;
+                    if ((i1 >= s1.Length) && (i2 >= s2.Length))
+                    {
+                        return 0;
+                    }
+                    else if (i1 >= s1.Length)
+                    {
+                        return -1;
+                    }
+                    else if (i2 >= s2.Length)
+                    {
+                        return -1;
+                    }
+                }
+            }
+            private static int CompareNum(string s1, ref int i1, string s2, ref int i2)
+            {
+                int nzStart1 = i1, nzStart2 = i2; // nz = non zero
+                int end1 = i1, end2 = i2;
+
+                ScanNumEnd(s1, i1, ref end1, ref nzStart1);
+                ScanNumEnd(s2, i2, ref end2, ref nzStart2);
+                int start1 = i1; i1 = end1 - 1;
+                int start2 = i2; i2 = end2 - 1;
+
+                int nzLength1 = end1 - nzStart1;
+                int nzLength2 = end2 - nzStart2;
+
+                if (nzLength1 < nzLength2) return -1;
+                else if (nzLength1 > nzLength2) return 1;
+
+                for (int j1 = nzStart1, j2 = nzStart2; j1 <= i1; j1++, j2++)
+                {
+                    int r = s1[j1].CompareTo(s2[j2]);
+                    if (r != 0) return r;
+                }
+                // the nz parts are equal
+                int length1 = end1 - start1;
+                int length2 = end2 - start2;
+                if (length1 == length2) return 0;
+                if (length1 > length2) return -1;
+                return 1;
+            }
+            private static void ScanNumEnd(string s, int start, ref int end, ref int nzStart)
+            {
+                nzStart = start;
+                end = start;
+                bool countZeros = true;
+                while (Char.IsDigit(s, end))
+                {
+                    if (countZeros && s[end].Equals('0'))
+                    {
+                        nzStart++;
+                    }
+                    else countZeros = false;
+                    end++;
+                    if (end >= s.Length) break;
+                }
+            }
+        }
+    }
+
+    public class File_Class
+    {
+        private Timer delete_check_timer;
+        private TimerCallback delete_TimerCallBack;
+        private EventWaitHandle[] m_WaitHandle;
+        private Thread imagedelete_thread;
+
+        private bool deleterunning;
+        private string deletefolderpath;
+        private bool thstate;
+
+        public void Delete_Ini()
+        {
+            try
+            {
+                imagedelete_thread = new Thread(new ThreadStart(Deletework));
+                m_WaitHandle = new EventWaitHandle[1];
+                m_WaitHandle[0] = new EventWaitHandle(false, EventResetMode.AutoReset, "Delete");
+                thstate = true;
+                imagedelete_thread.Start();
+                delete_TimerCallBack = new TimerCallback(dele_timer_Tick);
+                delete_check_timer = new Timer(delete_TimerCallBack, null, Timeout.Infinite, Timeout.Infinite);
+                delete_check_timer.Change(0,60000);                
+            }
+            catch
+            {
+
+            }
+        }
+        public void Delete_Dispose()
+        {
+            try
+            {
+                delete_check_timer.Change(Timeout.Infinite, Timeout.Infinite);
+                delete_check_timer.Dispose();
+                delete_check_timer = null;
+                delete_TimerCallBack = null;
+                imagedelete_thread.Abort();
+            }
+            catch
+            {
+
+            }
+        }
+        private void dele_timer_Tick(Object state)
+        {
+            try
+            {
+                if (Properties.Settings.Default.ImageSave)
+                {
+                    DriveInfo DI = new DriveInfo("D");
+
+                    double Size = ((DI.TotalSize - DI.AvailableFreeSpace) * 100 / DI.TotalSize);
+
+                    if (Size >= double.Parse(Properties.Settings.Default.VisionSaveSpace) && !deleterunning)
+                    {
+                        deleterunning = true;
+                        deletefolderpath = "";
+                        FindFolderName(Constants.PATH_IMG);
+
+                        if (deletefolderpath != "")
+                        {
+                            deleterunning = true;
+                            m_WaitHandle[0].Set();
+                        }
+                        else
+                        {
+                            deleterunning = false;
+                        }
+                    }
+                    else if (!deleterunning)
+                    {
+                        deletefolderpath = "";
+                        FindDateName(Constants.PATH_IMG, DateTime.Now);
+
+                        if (deletefolderpath != "")
+                        {
+                            deleterunning = true;
+                            m_WaitHandle[0].Set();
+                        }
+                    }
+                }
+            }
+            catch
+            {
+
+            }
+        }
+        private void Deletework()
+        {
+            try
+            {
+                while (thstate)
+                {
+                    WaitHandle.WaitAll(m_WaitHandle);
+
+                    Delete_Void();
+
+                    Thread.Sleep(500);
+                    deleterunning = false;
+                }
+            }
+            catch
+            {
+
+            }
+        }
+        public void Delete_Void()
+        {
+            try
+            {
+                DirectoryInfo SDI = new DirectoryInfo(deletefolderpath);
+
+                SDI.Attributes = FileAttributes.Normal;
+
+                //foreach (FileInfo sfi in SDI.GetFiles())
+                //{
+                //    sfi.Attributes = FileAttributes.Normal;
+                //    sfi.Delete();
+                //    System.Threading.Thread.Sleep(1);
+                //}
+
+                SDI.Delete(true);
+
+                foreach (EventWaitHandle nEvent in m_WaitHandle)
+                    nEvent.Reset();
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine(ex.ToString());
+
+                foreach (EventWaitHandle nEvent in m_WaitHandle)
+                    nEvent.Reset();
+            }
+        }
+        private void FindFolderName(string path)
+        {
+            try
+            {
+                DirectoryInfo DF_Delete = new DirectoryInfo(path);
+                DirectoryInfo[] DF_Delete2 = DF_Delete.GetDirectories();
+
+                if (DF_Delete2.Length == 0)
+                {
+                    DF_Delete = null;
+                    DF_Delete2 = null;
+                    deletefolderpath = path;
+                    return;
+                }
+
+                string[] DeleteFolderName = new string[DF_Delete2.Length];
+
+                int count = 0;
+                foreach (var item in DF_Delete2)
+                {
+                    DeleteFolderName[count] = item.Name;
+                    count++;
+                }
+
+                Array.Sort(DeleteFolderName, new StringAsNumericComparer());
+
+                FindFolderName(Path.Combine(path,DeleteFolderName[0]));
+            }
+            catch
+            {
+
+            }
+        }
+        private void FindDateName(string path, DateTime master_date)
+        {
+            try
+            {
+                DirectoryInfo DF_Delete = new DirectoryInfo(path);
+                DirectoryInfo[] DF_Delete2 = DF_Delete.GetDirectories();
+
+                string[] test = path.Split('\\');
+
+                if (test.Length == 5)
+                {
+                    //year : 2, month :3, day : 4
+                    DateTime checkmaster = new DateTime((int)master_date.Year, (int)master_date.Month, (int)master_date.Day, (int)0, (int)0, (int)0);
+                    DateTime checkdate = new DateTime(int.Parse(test[2]), int.Parse(test[3]), int.Parse(test[4]), (int)0, (int)0, (int)0);
+                    
+                    TimeSpan t = checkmaster - checkdate;
+
+                    if(t.Days >= 4)
+                    {
+                        deletefolderpath = path;
+                    }
+                    else
+                    {
+                        deletefolderpath = "";
+                    }
+
+                    DF_Delete = null;
+                    DF_Delete2 = null;
+
+                    return;
+                }
+
+                if (DF_Delete2.Length == 0)
+                {
+                    DF_Delete = null;
+                    DF_Delete2 = null;
+                    if (path == "D:\\IMG")
+                    {
+                        deletefolderpath = "";
+                    }
+                    else
+                    {
+                        deletefolderpath = path;
+                    }
+                    return;
+                }
+
+                string[] DeleteFolderName = new string[DF_Delete2.Length];
+
+                int count = 0;
+                foreach (var item in DF_Delete2)
+                {
+                    DeleteFolderName[count] = item.Name;
+                    count++;
+                }
+
+                Array.Sort(DeleteFolderName, new StringAsNumericComparer());
+
+                FindDateName(Path.Combine(path, DeleteFolderName[0]), master_date);
+            }
+            catch
+            {
+
+            }
+        }
+    }
+}
+
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Text;
+using System.Threading.Tasks;
+
+namespace ASE_WAFER_VISIONINSPECTION.Communication
+{
+    public enum TCP_Step
+    {
+        Trigger = 0,
+        IMG_Update = 1,
+        Send_Result = 2,
+        Saveing_Wait = 3,
+        Result_Ack = 4
+    };
+    public class MIT_CAMEventArgs : EventArgs
+    {
+        public string Item { get; set; }
+        public string Item_State { get; set; }
+        public MIT_CAMEventArgs(string item, string item_state)
+        {
+            Item = item;
+            Item_State = item_state;
+        }
+    }
+    public class MITPLC_EventArgs : EventArgs
+    {
+        public string Title { get; set; }
+        public string Message { get; set; }
+        public MITPLC_EventArgs(string title, string message)
+        {
+            Title = title;
+            Message = message;
+        }
+    }
+    public class MITTRG_EventArgs : EventArgs
+    {
+        public string Point { get; set; }
+        public string Mode { get; set; }
+        public MITTRG_EventArgs(string insp_point, string mode)
+        {
+            Mode = mode;
+            Point = insp_point;
+        }
+    }
+    public class MIT_HBventArgs : EventArgs
+    {
+        public bool ONOFF { get; set; }
+        public MIT_HBventArgs(bool item_state)
+        {
+            ONOFF = item_state;
+        }
+    }
+}
+
+namespace ASE_WAFER_VISIONINSPECTION
+{
+    partial class Main_Form
+    {
+        /// <summary>
+        /// 필수 디자이너 변수입니다.
+        /// </summary>
+        private System.ComponentModel.IContainer components = null;
+
+        /// <summary>
+        /// 사용 중인 모든 리소스를 정리합니다.
+        /// </summary>
+        /// <param name="disposing">관리되는 리소스를 삭제해야 하면 true이고, 그렇지 않으면 false입니다.</param>
+        protected override void Dispose(bool disposing)
+        {
+            if (disposing && (components != null))
+            {
+                components.Dispose();
+            }
+            base.Dispose(disposing);
+        }
+
+        #region Windows Form 디자이너에서 생성한 코드
+
+        /// <summary>
+        /// 디자이너 지원에 필요한 메서드입니다. 
+        /// 이 메서드의 내용을 코드 편집기로 수정하지 마세요.
+        /// </summary>
+        private void InitializeComponent()
+        {
+            System.ComponentModel.ComponentResourceManager resources = new System.ComponentModel.ComponentResourceManager(typeof(Main_Form));
+            this.Main_tableLayoutPanel = new System.Windows.Forms.TableLayoutPanel();
+            this.Up_tableLayoutPanel = new System.Windows.Forms.TableLayoutPanel();
+            this.logo_pb = new System.Windows.Forms.PictureBox();
+            this.Title_label = new System.Windows.Forms.Label();
+            this.Start_panel = new System.Windows.Forms.Panel();
+            this.Stop_panel = new System.Windows.Forms.Panel();
+            this.Camera_panel = new System.Windows.Forms.Panel();
+            this.ETC_panel = new System.Windows.Forms.Panel();
+            this.State_tableLayoutPanel = new System.Windows.Forms.TableLayoutPanel();
+            this.PLCLog_panel = new System.Windows.Forms.TableLayoutPanel();
+            this.PLCLog_tb = new System.Windows.Forms.TextBox();
+            this.PLCLog_label = new System.Windows.Forms.Label();
+            this.PRGLog_panel = new System.Windows.Forms.TableLayoutPanel();
+            this.PRGLog_tb = new System.Windows.Forms.TextBox();
+            this.PRGLog_label = new System.Windows.Forms.Label();
+            this.HB_label = new System.Windows.Forms.Label();
+            this.HB_panel = new System.Windows.Forms.Panel();
+            this.Main_tableLayoutPanel.SuspendLayout();
+            this.Up_tableLayoutPanel.SuspendLayout();
+            ((System.ComponentModel.ISupportInitialize)(this.logo_pb)).BeginInit();
+            this.State_tableLayoutPanel.SuspendLayout();
+            this.PLCLog_panel.SuspendLayout();
+            this.PRGLog_panel.SuspendLayout();
+            this.SuspendLayout();
+            // 
+            // Main_tableLayoutPanel
+            // 
+            this.Main_tableLayoutPanel.ColumnCount = 1;
+            this.Main_tableLayoutPanel.ColumnStyles.Add(new System.Windows.Forms.ColumnStyle(System.Windows.Forms.SizeType.Percent, 100F));
+            this.Main_tableLayoutPanel.ColumnStyles.Add(new System.Windows.Forms.ColumnStyle(System.Windows.Forms.SizeType.Absolute, 20F));
+            this.Main_tableLayoutPanel.Controls.Add(this.Up_tableLayoutPanel, 0, 0);
+            this.Main_tableLayoutPanel.Controls.Add(this.State_tableLayoutPanel, 0, 2);
+            this.Main_tableLayoutPanel.Dock = System.Windows.Forms.DockStyle.Fill;
+            this.Main_tableLayoutPanel.Location = new System.Drawing.Point(0, 0);
+            this.Main_tableLayoutPanel.Margin = new System.Windows.Forms.Padding(0);
+            this.Main_tableLayoutPanel.Name = "Main_tableLayoutPanel";
+            this.Main_tableLayoutPanel.RowCount = 3;
+            this.Main_tableLayoutPanel.RowStyles.Add(new System.Windows.Forms.RowStyle(System.Windows.Forms.SizeType.Percent, 12F));
+            this.Main_tableLayoutPanel.RowStyles.Add(new System.Windows.Forms.RowStyle(System.Windows.Forms.SizeType.Percent, 73F));
+            this.Main_tableLayoutPanel.RowStyles.Add(new System.Windows.Forms.RowStyle(System.Windows.Forms.SizeType.Percent, 15F));
+            this.Main_tableLayoutPanel.RowStyles.Add(new System.Windows.Forms.RowStyle(System.Windows.Forms.SizeType.Absolute, 20F));
+            this.Main_tableLayoutPanel.Size = new System.Drawing.Size(1904, 1041);
+            this.Main_tableLayoutPanel.TabIndex = 0;
+            // 
+            // Up_tableLayoutPanel
+            // 
+            this.Up_tableLayoutPanel.BackgroundImage = global::ASE_WAFER_VISIONINSPECTION.Properties.Resources.up_bg;
+            this.Up_tableLayoutPanel.ColumnCount = 6;
+            this.Up_tableLayoutPanel.ColumnStyles.Add(new System.Windows.Forms.ColumnStyle(System.Windows.Forms.SizeType.Percent, 20F));
+            this.Up_tableLayoutPanel.ColumnStyles.Add(new System.Windows.Forms.ColumnStyle(System.Windows.Forms.SizeType.Percent, 30F));
+            this.Up_tableLayoutPanel.ColumnStyles.Add(new System.Windows.Forms.ColumnStyle(System.Windows.Forms.SizeType.Percent, 15F));
+            this.Up_tableLayoutPanel.ColumnStyles.Add(new System.Windows.Forms.ColumnStyle(System.Windows.Forms.SizeType.Percent, 15F));
+            this.Up_tableLayoutPanel.ColumnStyles.Add(new System.Windows.Forms.ColumnStyle(System.Windows.Forms.SizeType.Percent, 10F));
+            this.Up_tableLayoutPanel.ColumnStyles.Add(new System.Windows.Forms.ColumnStyle(System.Windows.Forms.SizeType.Percent, 10F));
+            this.Up_tableLayoutPanel.Controls.Add(this.logo_pb, 0, 0);
+            this.Up_tableLayoutPanel.Controls.Add(this.Title_label, 1, 0);
+            this.Up_tableLayoutPanel.Controls.Add(this.Start_panel, 2, 0);
+            this.Up_tableLayoutPanel.Controls.Add(this.Stop_panel, 3, 0);
+            this.Up_tableLayoutPanel.Controls.Add(this.Camera_panel, 4, 0);
+            this.Up_tableLayoutPanel.Controls.Add(this.ETC_panel, 5, 0);
+            this.Up_tableLayoutPanel.Dock = System.Windows.Forms.DockStyle.Fill;
+            this.Up_tableLayoutPanel.Location = new System.Drawing.Point(0, 0);
+            this.Up_tableLayoutPanel.Margin = new System.Windows.Forms.Padding(0);
+            this.Up_tableLayoutPanel.Name = "Up_tableLayoutPanel";
+            this.Up_tableLayoutPanel.RowCount = 1;
+            this.Up_tableLayoutPanel.RowStyles.Add(new System.Windows.Forms.RowStyle(System.Windows.Forms.SizeType.Percent, 100F));
+            this.Up_tableLayoutPanel.Size = new System.Drawing.Size(1904, 124);
+            this.Up_tableLayoutPanel.TabIndex = 9;
+            // 
+            // logo_pb
+            // 
+            this.logo_pb.BackColor = System.Drawing.Color.Transparent;
+            this.logo_pb.BackgroundImageLayout = System.Windows.Forms.ImageLayout.Zoom;
+            this.logo_pb.Dock = System.Windows.Forms.DockStyle.Fill;
+            this.logo_pb.Location = new System.Drawing.Point(5, 1);
+            this.logo_pb.Margin = new System.Windows.Forms.Padding(5, 1, 1, 1);
+            this.logo_pb.Name = "logo_pb";
+            this.logo_pb.Size = new System.Drawing.Size(374, 122);
+            this.logo_pb.TabIndex = 0;
+            this.logo_pb.TabStop = false;
+            // 
+            // Title_label
+            // 
+            this.Title_label.AutoSize = true;
+            this.Title_label.BackColor = System.Drawing.Color.Transparent;
+            this.Title_label.Dock = System.Windows.Forms.DockStyle.Fill;
+            this.Title_label.Font = new System.Drawing.Font("Microsoft Sans Serif", 36F, System.Drawing.FontStyle.Regular, System.Drawing.GraphicsUnit.Point, ((byte)(129)));
+            this.Title_label.ForeColor = System.Drawing.Color.White;
+            this.Title_label.Location = new System.Drawing.Point(381, 1);
+            this.Title_label.Margin = new System.Windows.Forms.Padding(1);
+            this.Title_label.Name = "Title_label";
+            this.Title_label.Size = new System.Drawing.Size(569, 122);
+            this.Title_label.TabIndex = 2;
+            this.Title_label.Text = "Model Classification Inspection";
+            this.Title_label.TextAlign = System.Drawing.ContentAlignment.MiddleCenter;
+            // 
+            // Start_panel
+            // 
+            this.Start_panel.BackColor = System.Drawing.Color.Transparent;
+            this.Start_panel.BackgroundImage = global::ASE_WAFER_VISIONINSPECTION.Properties.Resources.auto_off;
+            this.Start_panel.BackgroundImageLayout = System.Windows.Forms.ImageLayout.Zoom;
+            this.Start_panel.Cursor = System.Windows.Forms.Cursors.Hand;
+            this.Start_panel.Dock = System.Windows.Forms.DockStyle.Fill;
+            this.Start_panel.Location = new System.Drawing.Point(951, 0);
+            this.Start_panel.Margin = new System.Windows.Forms.Padding(0);
+            this.Start_panel.Name = "Start_panel";
+            this.Start_panel.Size = new System.Drawing.Size(285, 124);
+            this.Start_panel.TabIndex = 3;
+            this.Start_panel.Click += new System.EventHandler(this.Start_panel_Click);
+            // 
+            // Stop_panel
+            // 
+            this.Stop_panel.BackColor = System.Drawing.Color.Transparent;
+            this.Stop_panel.BackgroundImage = global::ASE_WAFER_VISIONINSPECTION.Properties.Resources.stop_off;
+            this.Stop_panel.BackgroundImageLayout = System.Windows.Forms.ImageLayout.Zoom;
+            this.Stop_panel.Cursor = System.Windows.Forms.Cursors.Hand;
+            this.Stop_panel.Dock = System.Windows.Forms.DockStyle.Fill;
+            this.Stop_panel.Location = new System.Drawing.Point(1236, 0);
+            this.Stop_panel.Margin = new System.Windows.Forms.Padding(0);
+            this.Stop_panel.Name = "Stop_panel";
+            this.Stop_panel.Size = new System.Drawing.Size(285, 124);
+            this.Stop_panel.TabIndex = 3;
+            this.Stop_panel.Click += new System.EventHandler(this.Stop_panel_Click);
+            // 
+            // Camera_panel
+            // 
+            this.Camera_panel.BackColor = System.Drawing.Color.Transparent;
+            this.Camera_panel.BackgroundImage = global::ASE_WAFER_VISIONINSPECTION.Properties.Resources.camera_off;
+            this.Camera_panel.BackgroundImageLayout = System.Windows.Forms.ImageLayout.Zoom;
+            this.Camera_panel.Cursor = System.Windows.Forms.Cursors.Hand;
+            this.Camera_panel.Dock = System.Windows.Forms.DockStyle.Fill;
+            this.Camera_panel.Location = new System.Drawing.Point(1521, 0);
+            this.Camera_panel.Margin = new System.Windows.Forms.Padding(0);
+            this.Camera_panel.Name = "Camera_panel";
+            this.Camera_panel.Size = new System.Drawing.Size(190, 124);
+            this.Camera_panel.TabIndex = 3;
+            this.Camera_panel.Click += new System.EventHandler(this.Camera_panel_Click);
+            // 
+            // ETC_panel
+            // 
+            this.ETC_panel.BackColor = System.Drawing.Color.Transparent;
+            this.ETC_panel.BackgroundImage = global::ASE_WAFER_VISIONINSPECTION.Properties.Resources.etc_off;
+            this.ETC_panel.BackgroundImageLayout = System.Windows.Forms.ImageLayout.Zoom;
+            this.ETC_panel.Cursor = System.Windows.Forms.Cursors.Hand;
+            this.ETC_panel.Dock = System.Windows.Forms.DockStyle.Fill;
+            this.ETC_panel.Location = new System.Drawing.Point(1711, 0);
+            this.ETC_panel.Margin = new System.Windows.Forms.Padding(0);
+            this.ETC_panel.Name = "ETC_panel";
+            this.ETC_panel.Size = new System.Drawing.Size(193, 124);
+            this.ETC_panel.TabIndex = 3;
+            this.ETC_panel.Click += new System.EventHandler(this.ETC_panel_Click);
+            // 
+            // State_tableLayoutPanel
+            // 
+            this.State_tableLayoutPanel.ColumnCount = 4;
+            this.State_tableLayoutPanel.ColumnStyles.Add(new System.Windows.Forms.ColumnStyle(System.Windows.Forms.SizeType.Percent, 40F));
+            this.State_tableLayoutPanel.ColumnStyles.Add(new System.Windows.Forms.ColumnStyle(System.Windows.Forms.SizeType.Percent, 40F));
+            this.State_tableLayoutPanel.ColumnStyles.Add(new System.Windows.Forms.ColumnStyle(System.Windows.Forms.SizeType.Percent, 10F));
+            this.State_tableLayoutPanel.ColumnStyles.Add(new System.Windows.Forms.ColumnStyle(System.Windows.Forms.SizeType.Percent, 10F));
+            this.State_tableLayoutPanel.Controls.Add(this.PLCLog_panel, 0, 0);
+            this.State_tableLayoutPanel.Controls.Add(this.PRGLog_panel, 1, 0);
+            this.State_tableLayoutPanel.Controls.Add(this.HB_label, 2, 0);
+            this.State_tableLayoutPanel.Controls.Add(this.HB_panel, 3, 0);
+            this.State_tableLayoutPanel.Dock = System.Windows.Forms.DockStyle.Fill;
+            this.State_tableLayoutPanel.Location = new System.Drawing.Point(3, 886);
+            this.State_tableLayoutPanel.Name = "State_tableLayoutPanel";
+            this.State_tableLayoutPanel.RowCount = 1;
+            this.State_tableLayoutPanel.RowStyles.Add(new System.Windows.Forms.RowStyle(System.Windows.Forms.SizeType.Percent, 100F));
+            this.State_tableLayoutPanel.Size = new System.Drawing.Size(1898, 152);
+            this.State_tableLayoutPanel.TabIndex = 10;
+            // 
+            // PLCLog_panel
+            // 
+            this.PLCLog_panel.BackgroundImage = ((System.Drawing.Image)(resources.GetObject("PLCLog_panel.BackgroundImage")));
+            this.PLCLog_panel.BackgroundImageLayout = System.Windows.Forms.ImageLayout.Stretch;
+            this.PLCLog_panel.ColumnCount = 3;
+            this.PLCLog_panel.ColumnStyles.Add(new System.Windows.Forms.ColumnStyle(System.Windows.Forms.SizeType.Percent, 3.180212F));
+            this.PLCLog_panel.ColumnStyles.Add(new System.Windows.Forms.ColumnStyle(System.Windows.Forms.SizeType.Percent, 93.4629F));
+            this.PLCLog_panel.ColumnStyles.Add(new System.Windows.Forms.ColumnStyle(System.Windows.Forms.SizeType.Percent, 3.356891F));
+            this.PLCLog_panel.Controls.Add(this.PLCLog_tb, 1, 1);
+            this.PLCLog_panel.Controls.Add(this.PLCLog_label, 1, 0);
+            this.PLCLog_panel.Dock = System.Windows.Forms.DockStyle.Fill;
+            this.PLCLog_panel.Location = new System.Drawing.Point(5, 5);
+            this.PLCLog_panel.Margin = new System.Windows.Forms.Padding(5);
+            this.PLCLog_panel.Name = "PLCLog_panel";
+            this.PLCLog_panel.RowCount = 3;
+            this.PLCLog_panel.RowStyles.Add(new System.Windows.Forms.RowStyle(System.Windows.Forms.SizeType.Percent, 20F));
+            this.PLCLog_panel.RowStyles.Add(new System.Windows.Forms.RowStyle(System.Windows.Forms.SizeType.Percent, 72F));
+            this.PLCLog_panel.RowStyles.Add(new System.Windows.Forms.RowStyle(System.Windows.Forms.SizeType.Percent, 8F));
+            this.PLCLog_panel.Size = new System.Drawing.Size(749, 142);
+            this.PLCLog_panel.TabIndex = 4;
+            // 
+            // PLCLog_tb
+            // 
+            this.PLCLog_tb.BackColor = System.Drawing.Color.FromArgb(((int)(((byte)(45)))), ((int)(((byte)(45)))), ((int)(((byte)(45)))));
+            this.PLCLog_tb.BorderStyle = System.Windows.Forms.BorderStyle.None;
+            this.PLCLog_tb.Dock = System.Windows.Forms.DockStyle.Fill;
+            this.PLCLog_tb.Font = new System.Drawing.Font("Microsoft Sans Serif", 11.25F, System.Drawing.FontStyle.Bold, System.Drawing.GraphicsUnit.Point, ((byte)(0)));
+            this.PLCLog_tb.ForeColor = System.Drawing.Color.FromArgb(((int)(((byte)(155)))), ((int)(((byte)(155)))), ((int)(((byte)(155)))));
+            this.PLCLog_tb.Location = new System.Drawing.Point(35, 43);
+            this.PLCLog_tb.Margin = new System.Windows.Forms.Padding(12, 15, 12, 8);
+            this.PLCLog_tb.Multiline = true;
+            this.PLCLog_tb.Name = "PLCLog_tb";
+            this.PLCLog_tb.ReadOnly = true;
+            this.PLCLog_tb.ScrollBars = System.Windows.Forms.ScrollBars.Vertical;
+            this.PLCLog_tb.Size = new System.Drawing.Size(676, 79);
+            this.PLCLog_tb.TabIndex = 0;
+            // 
+            // PLCLog_label
+            // 
+            this.PLCLog_label.AutoSize = true;
+            this.PLCLog_label.BackColor = System.Drawing.Color.Transparent;
+            this.PLCLog_label.Dock = System.Windows.Forms.DockStyle.Fill;
+            this.PLCLog_label.Font = new System.Drawing.Font("Microsoft Sans Serif", 13F, System.Drawing.FontStyle.Bold);
+            this.PLCLog_label.ForeColor = System.Drawing.Color.FromArgb(((int)(((byte)(155)))), ((int)(((byte)(155)))), ((int)(((byte)(155)))));
+            this.PLCLog_label.Location = new System.Drawing.Point(27, 4);
+            this.PLCLog_label.Margin = new System.Windows.Forms.Padding(4, 4, 4, 0);
+            this.PLCLog_label.Name = "PLCLog_label";
+            this.PLCLog_label.Size = new System.Drawing.Size(692, 24);
+            this.PLCLog_label.TabIndex = 1;
+            this.PLCLog_label.Text = "Robot Log";
+            this.PLCLog_label.TextAlign = System.Drawing.ContentAlignment.MiddleLeft;
+            // 
+            // PRGLog_panel
+            // 
+            this.PRGLog_panel.BackgroundImage = ((System.Drawing.Image)(resources.GetObject("PRGLog_panel.BackgroundImage")));
+            this.PRGLog_panel.BackgroundImageLayout = System.Windows.Forms.ImageLayout.Stretch;
+            this.PRGLog_panel.ColumnCount = 3;
+            this.PRGLog_panel.ColumnStyles.Add(new System.Windows.Forms.ColumnStyle(System.Windows.Forms.SizeType.Percent, 3.180212F));
+            this.PRGLog_panel.ColumnStyles.Add(new System.Windows.Forms.ColumnStyle(System.Windows.Forms.SizeType.Percent, 93.4629F));
+            this.PRGLog_panel.ColumnStyles.Add(new System.Windows.Forms.ColumnStyle(System.Windows.Forms.SizeType.Percent, 3.356891F));
+            this.PRGLog_panel.Controls.Add(this.PRGLog_tb, 1, 1);
+            this.PRGLog_panel.Controls.Add(this.PRGLog_label, 1, 0);
+            this.PRGLog_panel.Dock = System.Windows.Forms.DockStyle.Fill;
+            this.PRGLog_panel.Location = new System.Drawing.Point(764, 5);
+            this.PRGLog_panel.Margin = new System.Windows.Forms.Padding(5);
+            this.PRGLog_panel.Name = "PRGLog_panel";
+            this.PRGLog_panel.RowCount = 3;
+            this.PRGLog_panel.RowStyles.Add(new System.Windows.Forms.RowStyle(System.Windows.Forms.SizeType.Percent, 20F));
+            this.PRGLog_panel.RowStyles.Add(new System.Windows.Forms.RowStyle(System.Windows.Forms.SizeType.Percent, 72F));
+            this.PRGLog_panel.RowStyles.Add(new System.Windows.Forms.RowStyle(System.Windows.Forms.SizeType.Percent, 8F));
+            this.PRGLog_panel.Size = new System.Drawing.Size(749, 142);
+            this.PRGLog_panel.TabIndex = 6;
+            // 
+            // PRGLog_tb
+            // 
+            this.PRGLog_tb.BackColor = System.Drawing.Color.FromArgb(((int)(((byte)(45)))), ((int)(((byte)(45)))), ((int)(((byte)(45)))));
+            this.PRGLog_tb.BorderStyle = System.Windows.Forms.BorderStyle.None;
+            this.PRGLog_tb.Dock = System.Windows.Forms.DockStyle.Fill;
+            this.PRGLog_tb.Font = new System.Drawing.Font("Microsoft Sans Serif", 11.25F, System.Drawing.FontStyle.Bold, System.Drawing.GraphicsUnit.Point, ((byte)(0)));
+            this.PRGLog_tb.ForeColor = System.Drawing.Color.FromArgb(((int)(((byte)(155)))), ((int)(((byte)(155)))), ((int)(((byte)(155)))));
+            this.PRGLog_tb.Location = new System.Drawing.Point(35, 43);
+            this.PRGLog_tb.Margin = new System.Windows.Forms.Padding(12, 15, 12, 8);
+            this.PRGLog_tb.Multiline = true;
+            this.PRGLog_tb.Name = "PRGLog_tb";
+            this.PRGLog_tb.ReadOnly = true;
+            this.PRGLog_tb.ScrollBars = System.Windows.Forms.ScrollBars.Vertical;
+            this.PRGLog_tb.Size = new System.Drawing.Size(676, 79);
+            this.PRGLog_tb.TabIndex = 0;
+            // 
+            // PRGLog_label
+            // 
+            this.PRGLog_label.AutoSize = true;
+            this.PRGLog_label.BackColor = System.Drawing.Color.Transparent;
+            this.PRGLog_label.Dock = System.Windows.Forms.DockStyle.Fill;
+            this.PRGLog_label.Font = new System.Drawing.Font("Microsoft Sans Serif", 13F, System.Drawing.FontStyle.Bold);
+            this.PRGLog_label.ForeColor = System.Drawing.Color.FromArgb(((int)(((byte)(155)))), ((int)(((byte)(155)))), ((int)(((byte)(155)))));
+            this.PRGLog_label.Location = new System.Drawing.Point(27, 4);
+            this.PRGLog_label.Margin = new System.Windows.Forms.Padding(4, 4, 4, 0);
+            this.PRGLog_label.Name = "PRGLog_label";
+            this.PRGLog_label.Size = new System.Drawing.Size(692, 24);
+            this.PRGLog_label.TabIndex = 1;
+            this.PRGLog_label.Text = "PRG Log";
+            this.PRGLog_label.TextAlign = System.Drawing.ContentAlignment.MiddleLeft;
+            // 
+            // HB_label
+            // 
+            this.HB_label.AutoSize = true;
+            this.HB_label.Dock = System.Windows.Forms.DockStyle.Fill;
+            this.HB_label.ForeColor = System.Drawing.Color.White;
+            this.HB_label.Location = new System.Drawing.Point(1519, 1);
+            this.HB_label.Margin = new System.Windows.Forms.Padding(1);
+            this.HB_label.Name = "HB_label";
+            this.HB_label.Size = new System.Drawing.Size(187, 150);
+            this.HB_label.TabIndex = 7;
+            this.HB_label.Text = "Heart Beat";
+            this.HB_label.TextAlign = System.Drawing.ContentAlignment.MiddleCenter;
+            // 
+            // HB_panel
+            // 
+            this.HB_panel.Dock = System.Windows.Forms.DockStyle.Fill;
+            this.HB_panel.Location = new System.Drawing.Point(1747, 40);
+            this.HB_panel.Margin = new System.Windows.Forms.Padding(40);
+            this.HB_panel.Name = "HB_panel";
+            this.HB_panel.Size = new System.Drawing.Size(111, 72);
+            this.HB_panel.TabIndex = 8;
+            // 
+            // Main_Form
+            // 
+            this.AutoScaleDimensions = new System.Drawing.SizeF(10F, 20F);
+            this.AutoScaleMode = System.Windows.Forms.AutoScaleMode.Font;
+            this.BackColor = System.Drawing.Color.FromArgb(((int)(((byte)(58)))), ((int)(((byte)(58)))), ((int)(((byte)(58)))));
+            this.ClientSize = new System.Drawing.Size(1904, 1041);
+            this.Controls.Add(this.Main_tableLayoutPanel);
+            this.Font = new System.Drawing.Font("Microsoft Sans Serif", 12F, System.Drawing.FontStyle.Bold, System.Drawing.GraphicsUnit.Point, ((byte)(129)));
+            this.Margin = new System.Windows.Forms.Padding(4, 5, 4, 5);
+            this.Name = "Main_Form";
+            this.Text = "Wafer Vision Inspection";
+            this.FormClosing += new System.Windows.Forms.FormClosingEventHandler(this.Main_Form_FormClosing);
+            this.Load += new System.EventHandler(this.Main_Form_Load);
+            this.Main_tableLayoutPanel.ResumeLayout(false);
+            this.Up_tableLayoutPanel.ResumeLayout(false);
+            this.Up_tableLayoutPanel.PerformLayout();
+            ((System.ComponentModel.ISupportInitialize)(this.logo_pb)).EndInit();
+            this.State_tableLayoutPanel.ResumeLayout(false);
+            this.State_tableLayoutPanel.PerformLayout();
+            this.PLCLog_panel.ResumeLayout(false);
+            this.PLCLog_panel.PerformLayout();
+            this.PRGLog_panel.ResumeLayout(false);
+            this.PRGLog_panel.PerformLayout();
+            this.ResumeLayout(false);
+
+        }
+
+        #endregion
+
+        private System.Windows.Forms.TableLayoutPanel Main_tableLayoutPanel;
+        private System.Windows.Forms.TableLayoutPanel PLCLog_panel;
+        private System.Windows.Forms.TextBox PLCLog_tb;
+        private System.Windows.Forms.Label PLCLog_label;
+        private System.Windows.Forms.TableLayoutPanel PRGLog_panel;
+        private System.Windows.Forms.TextBox PRGLog_tb;
+        private System.Windows.Forms.Label PRGLog_label;
+        private System.Windows.Forms.TableLayoutPanel Up_tableLayoutPanel;
+        private System.Windows.Forms.PictureBox logo_pb;
+        private System.Windows.Forms.Label Title_label;
+        private System.Windows.Forms.Panel Start_panel;
+        private System.Windows.Forms.Panel Stop_panel;
+        private System.Windows.Forms.Panel Camera_panel;
+        private System.Windows.Forms.Panel ETC_panel;
+        private System.Windows.Forms.TableLayoutPanel State_tableLayoutPanel;
+        private System.Windows.Forms.Label HB_label;
+        private System.Windows.Forms.Panel HB_panel;
+    }
+}
+
+
+using System;
+using System.Collections.Generic;
+using System.ComponentModel;
+using System.Data;
+using System.Drawing;
+using System.Linq;
+using System.Text;
+using System.Threading.Tasks;
+using System.Windows.Forms;
+
+using Cognex.InSight.Controls.Display;
+using Cognex.InSight;
+
+using ASE_WAFER_VISIONINSPECTION.Camera;
+using ASE_WAFER_VISIONINSPECTION.Global;
+
+namespace ASE_WAFER_VISIONINSPECTION
+{
+    public partial class Tool_Form : Form
+    {
+        private CvsInSightDisplay maindisplay;
+        public insight_Class INSIGHT;
+        public Tool_Form()
+        {
+            InitializeComponent();
+        }
+        private void Tool_Form_Load(object sender, EventArgs e)
+        {
+            try
+            {
+                maindisplay = new CvsInSightDisplay();
+                maindisplay.InSight = INSIGHT.Get_INSIGHT();
+                maindisplay.ImageZoomMode = CvsDisplayZoom.Fit;
+                Display_tableLayoutPanel.Controls.Add(maindisplay);
+                maindisplay.Dock = DockStyle.Fill;
+                maindisplay.Padding = new Padding(1);
+                maindisplay.GridOpacity = 0;
+                maindisplay.LoadStandardTheme();
+                maindisplay.Edit.SoftOnline.Bind(online_checkBox);
+                maindisplay.SoftOnline = true;
+
+                if (maindisplay.ShowGrid)
+                {
+                    grid_checkbox.Checked = true;
+                }
+                else
+                {
+                    grid_checkbox.Checked = false;
+                }
+
+                if(maindisplay.ShowImage)
+                {
+                    image_checkbox.Checked = true;
+                }
+                else
+                {
+                    image_checkbox.Checked = true;
+                }
+
+                if(maindisplay.SoftOnline)
+                {
+                    online_checkBox.Checked = true;
+                }
+                else
+                {
+                    online_checkBox.Checked = false;
+                }
+
+                maindisplay.Edit.LiveAcquire.Activated = false;
+                maindisplay.SoftOnline = false;
+
+                CH1_Value.Value = int.Parse(ini.ReadIni("INSIGHT", "CH1", Constants.PATH_Light_Ini));
+
+
+                //this.WindowState = FormWindowState.Maximized;
+                this.Update();
+            }
+            catch
+            {
+
+            }
+        }
+        private void Tool_Form_FormClosing(object sender, FormClosingEventArgs e)
+        {
+            try
+            {
+                
+                INSIGHT.Light_OFF();
+                INSIGHT = null;
+
+            }
+            catch
+            {
+
+            }
+        }
+        private void trg_btn_Click(object sender, EventArgs e)
+        {
+            try
+            {
+                System.Diagnostics.Stopwatch sw = new System.Diagnostics.Stopwatch();
+                sw.Start();
+                INSIGHT.Light_ON();
+                System.Threading.Thread.Sleep(50);
+                maindisplay.InSight.ManualAcquire(true);
+                INSIGHT.Light_OFF();
+                sw.Stop();
+                Console.WriteLine(sw.ElapsedMilliseconds.ToString());
+            }
+            catch
+            {
+
+            }
+        }
+        private void LSave_btn_Click(object sender, EventArgs e)
+        {
+            try
+            {
+                ini.WriteIni("INSIGHT", "CH1", CH1_Value.Value.ToString(), Constants.PATH_Light_Ini);
+      
+
+                INSIGHT.Light_Value_Update();
+                INSIGHT.Light_ON();
+            }
+            catch
+            {
+
+            }
+        }
+        private void JobSave_btn_Click(object sender, EventArgs e)
+        {
+            try
+            {
+                maindisplay.InSight.File.SaveJobFile("ASE.job");
+            }
+            catch
+            {
+
+            }
+        }
+
+        private void Grid_trackBar_Scroll(object sender, EventArgs e)
+        {
+            try
+            {
+                maindisplay.GridOpacity = (double)Grid_trackBar.Value / (double)100;
+                grid_label.Text = "Grid Opacity : " + Grid_trackBar.Value.ToString() + "%";
+            }
+            catch
+            {
+
+            }
+        }
+        private void grid_checkbox_CheckedChanged(object sender, EventArgs e)
+        {
+            try
+            {
+                if (grid_checkbox.Checked)
+                {
+                    maindisplay.ShowGrid = true;
+                }
+                else
+                {
+                    maindisplay.ShowGrid = false;
+                }
+            }
+            catch
+            {
+
+            }
+        }
+        private void image_checkbox_CheckedChanged(object sender, EventArgs e)
+        {
+            try
+            {
+                if (image_checkbox.Checked)
+                {
+                    maindisplay.ShowImage = true;
+                }
+                else
+                {
+                    maindisplay.ShowImage = false;
+                }
+            }
+            catch
+            {
+
+            }
+        }
+        private void live_checkBox_CheckedChanged(object sender, EventArgs e)
+        {
+            try
+            {
+                if(live_checkBox.Checked)
+                {
+                    maindisplay.Edit.LiveAcquire.Activated = true;
+                }
+                else
+                {
+                    maindisplay.Edit.LiveAcquire.Activated = false;
+                }
+            }
+            catch
+            {
+
+            }
+        }
+        private void online_checkBox_CheckedChanged(object sender, EventArgs e)
+        {
+            try
+            {
+                if(online_checkBox.Checked)
+                {
+                    maindisplay.SoftOnline = true;
+                }
+                else
+                {
+                    maindisplay.SoftOnline = false;
+                }
+            }
+            catch
+            {
+
+            }
+        }        
+        private void fit_radioButton_CheckedChanged(object sender, EventArgs e)
+        {
+            try
+            {
+                if (fit_radioButton.Checked)
+                {
+                    maindisplay.ImageZoomMode = CvsDisplayZoom.Fit;
+                }
+                else
+                {
+                    maindisplay.ImageZoomMode = CvsDisplayZoom.Fill;
+                }
+            }
+            catch
+            {
+
+            }
+        }
+    }
+}
